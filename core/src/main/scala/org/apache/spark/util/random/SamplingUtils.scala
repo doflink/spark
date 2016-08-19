@@ -17,10 +17,48 @@
 
 package org.apache.spark.util.random
 
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
+import scala.collection.Map
 import scala.reflect.ClassTag
 import scala.util.Random
 
 private[spark] object SamplingUtils {
+
+  /**
+   * Reservoir sampling implementation that also returns the input size.
+   *
+   * @param input     input size
+   * @param fractions reservoir sizes
+   * @param seed      random seed
+   * @return (samples, input size)
+   */
+  def reservoirStratifiedSample[K, V](
+                                       input: Iterator[(K, V)],
+                                       sampleSize: Long,
+                                       fractions: Map[K, Double],
+                                       seed: Long = Random.nextLong())
+  : mutable.Map[K, Reservoir[(K, V)]] = {
+
+    val reservoirs: mutable.Map[K, Reservoir[(K, V)]] = new mutable.HashMap[K, Reservoir[(K, V)]]()
+    // Put the first k elements in the reservoir.
+    var i = 0
+    while (input.hasNext) {
+
+      val item = input.next()
+      val key = item._1
+      val fraction = fractions(key)
+      val k = (sampleSize * fraction).toInt
+
+      if (!reservoirs.contains(key)) {
+        reservoirs += (key -> new Reservoir[(K, V)](k))
+      }
+
+      reservoirs(key).addItem(item)
+      i += 1
+    }
+    reservoirs
+  }
 
   /**
    * Reservoir sampling implementation that also returns the input size.
@@ -160,5 +198,37 @@ private[spark] object BinomialBounds {
     val gamma = - math.log(delta) / n
     math.min(1,
       math.max(minSamplingRate, fraction + gamma + math.sqrt(gamma * gamma + 2 * gamma * fraction)))
+  }
+}
+
+// Reservoir class added by Do Le Quoc
+private[spark] class Reservoir[T] extends Serializable {
+  var reservoir: ArrayBuffer[T] = new ArrayBuffer[T]
+  // var reservoir: Array[T] = Array()
+  var sizeMax: Int = 0
+
+  def this(sizeMax: Int) {
+    this()
+    this.sizeMax = sizeMax
+    // reservoir = new Array[T](sizeMax)
+  }
+
+  def addItem(e: T) {
+    if (!isFull) reservoir += e
+    else replaceItem(e)
+  }
+
+  def isFull: Boolean = if (reservoir.isEmpty) false else reservoir.size == sizeMax
+
+  def replaceItem(e: T) {
+    if (isFull) {
+      val pos = Random.nextInt(sizeMax)
+      reservoir.update(pos, e)
+    }
+    else throw new ArrayIndexOutOfBoundsException
+  }
+
+  override def toString: String = {
+    reservoir.toString()
   }
 }

@@ -251,6 +251,31 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
    * RDD, to produce a sample of size that's approximately equal to the sum of
    * math.ceil(numItems * samplingRate) over all key values.
    *
+   * @param sampleSize size of sample
+   * @param fractions  map of specific keys to sampling rates
+   * @param seed       seed for the random number generator
+   * @return RDD containing the sampled subset
+   */
+  def reservoirStratifiedSample(sampleSize: Long,
+                  fractions: Map[K, Double],
+                  seed: Long = Utils.random.nextLong): RDD[(K, V)] = self.withScope {
+
+    require(fractions.values.forall(v => v >= 0.0), "Negative sampling rates.")
+
+    val samplingFunc = StratifiedSamplingUtils
+                  .getReservoirSamplingFunction(self, sampleSize, fractions, seed)
+
+    self.mapPartitionsWithIndex(samplingFunc, preservesPartitioning = true)
+  }
+
+  /**
+   * Return a subset of this RDD sampled by key (via stratified sampling).
+   *
+   * Create a sample of this RDD using variable sampling rates for different keys as specified by
+   * `fractions`, a key to sampling rate map, via simple random sampling with one pass over the
+   * RDD, to produce a sample of size that's approximately equal to the sum of
+   * math.ceil(numItems * samplingRate) over all key values.
+   *
    * @param withReplacement whether to sample with or without replacement
    * @param fractions map of specific keys to sampling rates
    * @param seed seed for the random number generator
@@ -1079,7 +1104,7 @@ class PairRDDFunctions[K, V](self: RDD[(K, V)])
     // Rename this as hadoopConf internally to avoid shadowing (see SPARK-2038).
     val hadoopConf = conf
     val job = NewAPIHadoopJob.getInstance(hadoopConf)
-    val formatter = new SimpleDateFormat("yyyyMMddHHmmss")
+    val formatter = new SimpleDateFormat("yyyyMMddHHmm")
     val jobtrackerID = formatter.format(new Date())
     val stageId = self.id
     val jobConfiguration = job.getConfiguration

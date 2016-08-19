@@ -190,6 +190,34 @@ private[spark] object StratifiedSamplingUtils extends Logging {
 
   /**
    * Return the per partition sampling function used for sampling without replacement.
+   * Since exact sample size is required, sample size of each stratum is identified
+   * based on fractions from the statistic module.
+   *
+   * The sampling function has a unique seed per partition.
+   */
+  def getReservoirSamplingFunction[K, V](rdd: RDD[(K, V)],
+                                         sampleSize: Long,
+                                         fractions: Map[K, Double],
+                                         seed: Long):
+                                         (Int, Iterator[(K, V)]) => Iterator[(K, V)] = {
+    (idx: Int, iter: Iterator[(K, V)]) => {
+      val rng = new RandomDataGenerator()
+      rng.reSeed(seed + idx)
+
+      val  reservoirs = SamplingUtils.reservoirStratifiedSample(iter, sampleSize,
+                        fractions, rng.nextUniform().toLong)
+
+      val result = new ArrayBuffer[(K, V)](sampleSize.toInt)
+
+      // Add all sampled items of strata to a final result
+      reservoirs.foreach(item => result ++= item._2.reservoir)
+
+      result.iterator
+    }
+  }
+
+  /**
+   * Return the per partition sampling function used for sampling without replacement.
    *
    * When exact sample size is required, we make an additional pass over the RDD to determine the
    * exact sampling rate that guarantees sample size with high confidence.
